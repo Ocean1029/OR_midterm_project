@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from strategy_core import StrategySolution
 
-base_dir =  Path("report") / f"Evaluation_{datetime.now().strftime('%Y%m%d')}"
 
 def _pivot_orders(orders: Dict, N:int, T:int) -> Dict[int, pd.DataFrame]:
     """把 (i,j,t)->qty 轉成 {period : DataFrame(Product, Express, Air, Ocean)}"""
@@ -31,7 +30,7 @@ def export_strategies(sols: List[StrategySolution],
     N, T = instance["N"], instance["T"]
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(base_dir) / f"{out_prefix}_{stamp}"
+    out_dir = Path("report") / f"Strategy_{datetime.now().strftime('%Y%m%d')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # =============== 個別 Excel =============================
