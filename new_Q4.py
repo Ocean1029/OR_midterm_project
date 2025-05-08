@@ -2,23 +2,27 @@ from __future__ import annotations
 
 import time
 import random
-from typing import Mapping, Sequence
+from typing import Mapping
 
 import numpy as np
+from numpy import ceil
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 from tqdm import tqdm  # 進度條
 import argparse
-from reporter import generate_strategy_reports
 from heuristic import heuristic_two_mode_jit
+from reporter import export_strategies
+from strategy_core import StrategySolution
+from pathlib import Path
+
 
 
 # ---------------------------------------------------
 # 基本參數設定
 # ---------------------------------------------------
 
-NUM_INSTANCES = 10
+NUM_INSTANCES = 30
 SEED = 42
 
 random.seed(SEED)
@@ -218,89 +222,103 @@ def naive_heuristic(instance: Mapping):
     total_cost += 100 * T
     return total_cost
 
+def solve_all(instance: Mapping) -> Dict[str, StrategySolution]:
+    sols: Dict[str, StrategySolution] = {}
+
+    # # --- MIP ---
+    # t0 = time.time()
+    # mip = build_model(instance, integer=True)
+    # t1 = time.time() - t0
+    # mip_orders = {(i,j,t): v.X
+    #               for v in mip.getVars() if v.VarName.startswith("x[") and v.X>1e-6
+    #               for i,j,t in [map(int, v.VarName[2:-1].split(","))]}
+    # sols["MIP"] = StrategySolution(
+    #     "MIP", mip_orders, mip.ObjVal,
+    #     total_qty=sum(mip_orders.values()),
+    #     total_containers=sum(v.X for v in mip.getVars() if v.VarName.startswith("z[")),
+    #     run_time=t1
+    # )
+
+    # --- Relaxation ---
+    t0 = time.time()
+    lp = build_model(instance, integer=False)
+    t1 = time.time() - t0
+    lp_orders = {(i,j,t): v.X
+                 for v in lp.getVars() if v.VarName.startswith("x[") and v.X>1e-6
+                 for i,j,t in [map(int, v.VarName[2:-1].split(","))]}
+    sols["Relax"] = StrategySolution(
+        "Relax", lp_orders, lp.ObjVal,
+        total_qty=sum(lp_orders.values()),
+        total_containers=sum(v.X for v in lp.getVars() if v.VarName.startswith("z[")),
+        run_time=t1
+    )
+
+    # --- Heuristic-JIT ---
+    t0 = time.time()
+    orders_h, obj_h = heuristic_two_mode_jit(instance)
+    t1 = time.time() - t0
+    V = instance["V_i"]; N, T = instance["N"], instance["T"]
+    cont_h = sum(ceil(sum(V[i]*orders_h.get((i,2,t),0) for i in range(N)) / 30)
+                 for t in range(T))
+    sols["Heur"] = StrategySolution(
+        "Heur", orders_h, obj_h,
+        total_qty=sum(orders_h.values()),
+        total_containers=cont_h,
+        run_time=t1
+    )
+    return sols
+
 # ---------------------------------------------------
-# 4. 批次求解與 Gap 評估
+# 5. Evaluate 210 instances
 # ---------------------------------------------------
+def run_eval():
+    records = []
+    rng_seed = SEED
+    for sc in SCENARIOS:
+        inst_list = generate_instance(LEVELS, sc, NUM_INSTANCES, seed=rng_seed)
+        for k, raw in enumerate(tqdm(inst_list, desc=str(sc)), 1):
+            inst = prep_instance(raw)
+            sols = solve_all(inst)
+            opt = sols["Relax"].total_cost
+            for tag in ("Relax", "Heur"):
+                gap = (sols[tag].total_cost - opt) / opt * 100
+                records.append({
+                    "Scenario": sc, "Case": k, "Method": tag,
+                    "Obj": sols[tag].total_cost,
+                    "Gap(%)": gap,
+                    "Time(s)": sols[tag].run_time
+                })
 
-def evaluate_all(instances: dict) -> pd.DataFrame:
-    """
-        回傳 records 的 DataFrame
-        records 是一個 list，裡面每個元素都是一個 dict
-        dict 的 key 包含 ScenarioID, Scenario, InstanceID, ExactObj, HeurObj, ExactTime, Gap
-        records 的 shape 是 (len(instances), 7)
+    df = pd.DataFrame(records)
+    out_dir = Path("report") / f"Evaluation_{time.strftime('%Y%m%d-%H%M%S')}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_dir/"raw_results.csv", index=False)
 
-    """
-    records: list[dict] = []
-    for scen_idx, (scenario, inst_list) in enumerate(instances.items(), 1):
-        for ins_idx, instance in enumerate(tqdm(inst_list, desc=str(scenario), leave=True), 1):
-            
-            relax_model = build_model(instance, integer=False)
-            heur_obj = naive_heuristic(instance)
-            
-            gap = (heur_obj - relax_model.ObjVal) / relax_model.ObjVal * 100 if relax_model.status == GRB.OPTIMAL else np.nan
-            records.append(dict(
-                ScenarioID=scen_idx,
-                Scenario=scenario,
-                InstanceID=ins_idx,
-                ExactObj=relax_model.ObjVal,
-                HeurObj=heur_obj,
-                ExactTime=relax_model.Runtime,
-                Gap=gap,
-            ))
-
-    return pd.DataFrame.from_records(records)
-
+    summary = df.groupby(["Scenario", "Method"]).agg(
+        ObjVal_Average=("Obj", "mean"),
+        Gap_Average=("Gap(%)", "mean"),
+        Gap_Std=("Gap(%)", "std"),
+        Time_Average=("Time(s)", "mean"),
+        Time_Std=("Time(s)", "std")
+    ).reset_index()
+    summary.to_excel(out_dir/"summary.xlsx", index=False)
+    print("✔ Summary saved to", out_dir/"summary.xlsx")
 
 # ---------------------------------------------------
-# 5. Main
+# 6. 單一 BaseCase 報表
+# ---------------------------------------------------
+def run_strategies():
+    inst = prep_instance(BASE_CASE)
+    sols = solve_all(inst)
+    export_strategies(
+        list(sols.values()),
+        instance = inst,
+        out_prefix= "BaseCase"
+    )
+
+# ---------------------------------------------------
+# 7.  CLI
 # ---------------------------------------------------
 if __name__ == "__main__":
-    # 加入 argparse 模式切換
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["eval", "base"], default="eval")
-    args = parser.parse_args()
-
-    if args.mode == "eval":
-        # 1. 準備所有情境資料
-        instances = {scenario: generate_instance(LEVELS, scenario, NUM_INSTANCES, seed=SEED) for scenario in SCENARIOS}
-        instances[("Base", "-", "-")] = [prep_instance(BASE_CASE)]
-
-        # 2. 對每個情境進行求解，並計算 Gap
-        df = evaluate_all(instances)
-        df.to_excel("exp_results.xlsx", index=False)
-
-        # 3. 計算 Gap 的平均值與標準差
-        summary = df.groupby("Scenario", sort=False).agg(
-            ExactObj=("ExactObj", "mean"),
-            HeurObj=("HeurObj", "mean"),
-            ExactTime=("ExactTime", "mean"),
-            Gap=("Gap", "mean"),
-            Gap_std=("Gap", "std")
-        ).reset_index()
-
-        # 4. 將 value 格式化
-        summary_formatted = summary.copy()
-        summary_formatted["ExactObj"] = summary_formatted["ExactObj"].apply(lambda x: f"{x:,.2f}")
-        summary_formatted["HeurObj"] = summary_formatted["HeurObj"].apply(lambda x: f"{x:,.2f}")
-        summary_formatted["ExactTime"] = summary_formatted["ExactTime"].apply(lambda x: f"{x:.2f}s")
-        summary_formatted["Gap"] = summary_formatted["Gap"].apply(lambda x: f"{x:.2f}%")
-        summary_formatted["Gap_std"] = summary_formatted["Gap_std"].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "—")
-
-        print("=== Gap Summary (Heuristic vs. LP) ===")
-        print(summary_formatted.to_string(index=False))
-
-    elif args.mode == "base":
-        # 種類 1，拿 Base Case 來做
-        # inst = prep_instance(BASE_CASE)
-        # 種類 2，隨機生成一個 {medium, medium, medium} 的情境
-        inst = generate_instance(LEVELS, ("Large", "High", "High"), 1, seed=SEED)[0]
-
-        generate_strategy_reports(
-            instance=inst,
-            build_model=build_model,
-            naive_heuristic=heuristic_two_mode_jit,
-            out_prefix="LLL"
-        )
-
-    else:   
-        print("Invalid mode. Please choose 'eval' or 'base'.")
+    run_eval()
+    run_strategies()
