@@ -8,7 +8,7 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 from tqdm import tqdm  # 進度條
-from typing import Dict, Mapping
+from typing import Mapping
 
 from naive import naive_solution
 from heuristic import heuristic_two_mode_jit

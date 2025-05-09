@@ -9,9 +9,10 @@ import time
 # ---------------------------------------------------
 
 def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
+    t0 = time.time()
     """
     Return:
-        orders : dict[(i,j,t)] -> Q_ijt  第 i 個產品在 t 期用第 j 種運輸方式的訂單量
+        orders: Dict[tuple[int,int,int], float]  第 i 個產品在 t 期用第 j 種運輸方式的訂單量
         obj    : float, total cost of the heuristic solution
     """
     # ---- unpack instance --------------------------------------------------
@@ -42,10 +43,9 @@ def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
     # helper: place order
     def place(i: int, j: int, t: int, qty: float):
         if qty <= 0: return
-        orders[(i,j,t)] = orders.get((i,j,t), 0.0) + qty
+        orders[(i,j,t)] = orders.get((i,j,t), 0.0) + qty 
 
-    # ---- S3. loop over periods  -------------------------
-    t0 = time.time()
+    # ---- S3. loop over periods  ------------------------
     for i in range(N):
         for t in range(T):
             # arrival from previous orders / in‑transit
@@ -73,41 +73,8 @@ def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
                 order_timing = t - (LEAD[j]-1)
 
             place(i, j, order_timing, need)
-            inv[i,t+1] = 0.0        # JIT, no leftover
+            inv[i,t+1] = 0.0 
 
-    # ---- S4. simple sea container adjustment ------------------------------
-    for t in range(T):
-        vol_t = sum(V[i] * orders.get((i,2,t), 0) for i in range(N))
-        if vol_t == 0:
-            continue
-        used = vol_t / 30.0
-        frac = used - np.floor(used)
-        if 0 < frac < 0.5 and t < T-1:
-            # 嘗試把 t+1 期部分海運貨提前
-            compressable = []
-            for i in range(N):
-                if mode[i] == 2:
-                    nxt_qty = orders.get((i,2,t+1), 0)
-                    if nxt_qty > 0:
-                        compressable.append((i, nxt_qty, V[i]))
-            # sort by holding cost impact ascending
-            compressable.sort(key=lambda x: CH[x[0]])
-            vol_gap = (1-frac)*30
-            moved_units = 0
-            for i, qty, vol in compressable:
-                max_move = min(qty, vol_gap/vol)
-                if max_move <= 0: continue
-                # holding cost to move 1 unit one month: CH[i]
-                if CH[i] * max_move < CC * (1-frac):
-                    # move!
-                    place(i,2,t,   max_move)
-                    place(i,2,t+1,-max_move)
-                    vol_gap -= max_move * vol
-                    moved_units += max_move
-                if vol_gap <= 0: break
-            # 重新計算 vol_t (可省略，這只是成本評估啟發)
-
-    # ---- S5. compute objective --------------------------------------------
     # 購買 + 運費
     purchase_cost = sum(
         (pc[i] + (cv1[i] if j == 0 else cv2[i] if j == 1 else 0)) * q
@@ -124,10 +91,10 @@ def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
         vol = sum(V[i] * orders.get((i,2,t),0) for i in range(N))
         k   = int(np.ceil(vol/30))
         if k>0:
-            container_cost += k * CC + 50   # 50 = CF_3 (ocean fixed)
+            container_cost += k * CC
 
     # 持有成本（僅月 0~T-1 庫存）
-    holding_cost = sum(CH[i] * inv[i,t] for i in range(N) for t in range(1,T+1))
+    holding_cost = sum(CH[i] * inv[i,t] for i in range(N) for t in range(T))
 
     obj = purchase_cost + fix_cost + container_cost + holding_cost
 

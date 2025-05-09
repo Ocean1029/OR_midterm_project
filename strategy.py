@@ -16,9 +16,9 @@ def _pivot_orders(orders: Dict, N:int, T:int) -> Dict[int, pd.DataFrame]:
             if tt==t:
                 mat[i+1][j] += q
         rows = [{"Product":p,
-                 "Express":int(mat[p][0]),
-                 "Air":    int(mat[p][1]),
-                 "Ocean":  int(mat[p][2])} for p in prods]
+                 "Express":mat[p][0],
+                 "Air":    mat[p][1],
+                 "Ocean":  mat[p][2]} for p in prods]
         pivs[t] = pd.DataFrame(rows)
     return pivs
 
