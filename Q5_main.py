@@ -10,16 +10,16 @@ from gurobipy import GRB
 from tqdm import tqdm  # 進度條
 from typing import Mapping
 
-from naive import naive_solution
-from heuristic import heuristic_two_mode_jit
-from strategy import export_strategies
-from strategy_core import StrategySolution
+from Q4_naive import naive_solution
+from Q3_heuristic import heuristic_two_mode_jit
+from Q3_strategy import export_strategies
+from Q4_strategy_core import StrategySolution
     
 # ---------------------------------------------------
 # 基本參數設定
 # ---------------------------------------------------
 
-NUM_INSTANCES =5
+NUM_INSTANCES = 30
 SEED = 42
 
 random.seed(SEED)

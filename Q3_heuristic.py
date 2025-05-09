@@ -3,7 +3,7 @@
 import numpy as np
 from typing import Mapping, Dict, Tuple
 from math import ceil
-from strategy_core import StrategySolution
+from Q4_strategy_core import StrategySolution
 import time
 
 FIX = {0: 100, 1: 80, 2: 50}   # 固定費 (Express / Air / Ocean)

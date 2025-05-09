@@ -1,5 +1,5 @@
 # naive.py
-from strategy_core import StrategySolution
+from Q4_strategy_core import StrategySolution
 import time
 import numpy as np
 
