@@ -1,27 +1,25 @@
-from __future__ import annotations
-
 import time
 import random
-from typing import Mapping
-
+import copy
+import argparse
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 from tqdm import tqdm  # 進度條
-from typing import Dict
+from typing import Dict, Mapping
+
 from naive import naive_solution
 from heuristic import heuristic_two_mode_jit
 from strategy import export_strategies
 from strategy_core import StrategySolution
-from pathlib import Path
-import copy
     
 # ---------------------------------------------------
 # 基本參數設定
 # ---------------------------------------------------
 
-NUM_INSTANCES = 1
+NUM_INSTANCES =5
 SEED = 42
 
 random.seed(SEED)
@@ -136,9 +134,7 @@ def generate_instance(levels: dict,
 # ---------------------------------------------------
 
 def build_model(instance: Mapping, integer: bool) -> tuple[gp.Model]:
-
     t0 = time.time()
-
     N, T = instance["N"], instance["T"]
     demand = instance["demand"]
     pc = instance["purchase_cost"]
@@ -201,8 +197,11 @@ def build_model(instance: Mapping, integer: bool) -> tuple[gp.Model]:
         for v in model.getVars() if v.VarName.startswith("x[") and v.X > 1e-6
         for i, j, t in [map(int, v.VarName[2:-1].split(","))]
     }
+
+    name = "Relax" if not integer else "MIP"
+
     return StrategySolution(
-        name="Relax",
+        name=name,
         orders=orders,
         total_cost=model.ObjVal,
         total_qty=sum(orders.values()),
@@ -210,16 +209,32 @@ def build_model(instance: Mapping, integer: bool) -> tuple[gp.Model]:
         run_time=rt
     )
 
-def solve_all(instance: Mapping) -> Dict[str, StrategySolution]:
+def solver(instance: Mapping, 
+           methods: list[str]) -> dict[str, StrategySolution]:
+    
+    #  分解 methods
+    methods = methods if isinstance(methods, list) else [methods]
+    methods = [method.strip() for method in methods]
+    methods = [method for method in methods if method in ("Relax", "MIP", "Heur", "Naive")]
+    if not methods:
+        raise ValueError("No valid methods provided.")
+
+    # 產生解
     sols = {}
-    sols["Relax"] = build_model(instance, integer=False)
-    sols["Heur"]  = heuristic_two_mode_jit(instance)
-    sols["Naive"] = naive_solution(instance)
+    for method in methods:
+        if method == "Relax":
+            sols[method] = build_model(instance, integer=False)
+        elif method == "MIP":
+            sols[method] = build_model(instance, integer=True)
+        elif method == "Heur":
+            sols[method] = heuristic_two_mode_jit(instance)
+        elif method == "Naive":
+            sols[method] = naive_solution(instance)
     return sols
 
 def run_evaluation(
+        evaluation_models: list[str],
         benchmark_model: str = "Relax", 
-        evaluation_models: list[str] = ["Heur"],
         output_prefix: str = "Evaluation",    
     ):
     records = []
@@ -228,10 +243,10 @@ def run_evaluation(
         inst_list = generate_instance(LEVELS, scenario, NUM_INSTANCES, seed=rng_seed)
         for k, raw in enumerate(tqdm(inst_list, desc=str(scenario)), 1):
             instances = prep_instance(raw)
-            sols = solve_all(instances)
+            sols = solver(instances, methods=[benchmark_model] + evaluation_models)
 
             optimal = sols[benchmark_model].total_cost
-            for tag in (evaluation_models + [benchmark_model]):
+            for tag in ([benchmark_model] + evaluation_models):
                 gap = (sols[tag].total_cost - optimal) / optimal * 100
                 records.append({
                     "Scenario": scenario, "Case": k, "Method": tag,
@@ -290,7 +305,7 @@ def run_strategies(case: str = "BaseCase") -> None:
         scenario_tag = scenario_tag.replace("_", "-")
         
     # ---------- 2) 求解並輸出 ----------
-    sols = solve_all(inst)
+    sols = solver(inst, methods=["Relax", "MIP", "Heur", "Naive"])
     export_strategies(
         list(sols.values()),
         instance=inst,
@@ -302,5 +317,13 @@ def run_strategies(case: str = "BaseCase") -> None:
 # 7.  CLI
 # ---------------------------------------------------
 if __name__ == "__main__":
-    run_evaluation(benchmark_model="Relax", evaluation_models=["Heur", "Naive"])
-    run_strategies(case="Medium_Medium_Medium")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["eval", "stra"], default="eval")
+    args = parser.parse_args()
+
+    if args.mode == "eval":
+        run_evaluation(benchmark_model="Relax", evaluation_models=["Heur", "Naive"],
+                       output_prefix="Evaluation")
+    elif args.mode == "stra":
+        run_strategies(case="BaseCase")
+        # run_strategies(case="Large_Medium_Medium")

@@ -30,7 +30,7 @@ def export_strategies(sols: List[StrategySolution],
     N, T = instance["N"], instance["T"]
 
 
-    out_dir = Path("report") / f"Startegy_{scenario}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    out_dir = Path("report") / f"Strategy_{scenario}_{datetime.now().strftime('%Y%m%d_%H%M')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # =============== 個別 Excel =============================
@@ -38,7 +38,8 @@ def export_strategies(sols: List[StrategySolution],
         piv = _pivot_orders(sol.orders, N, T)
         stats = {"TotalCost":sol.total_cost,
                  "TotalQty": sol.total_qty,
-                 "TotalContainers": sol.total_containers}
+                 "TotalContainers": sol.total_containers,
+                 "TotalRunTime": sol.run_time}
         fname = out_dir / f"{sol.name}.xlsx"
         with pd.ExcelWriter(fname, engine="xlsxwriter") as w:
             for t,df in piv.items():
@@ -52,8 +53,9 @@ def export_strategies(sols: List[StrategySolution],
     rows = [dict(Method=sol.name,
                  TotalCost=sol.total_cost,
                  TotalQty=sol.total_qty,
-                 TotalContainers=sol.total_containers)
-            for sol in sols]
+                 TotalContainers=sol.total_containers,
+                TotalRunTime=sol.run_time
+                ) for sol in sols]
     kpi_path = out_dir / "KPI_Comparison.xlsx"
     pd.DataFrame(rows).to_excel(kpi_path, index=False)
     print("✔ Exported", kpi_path)
