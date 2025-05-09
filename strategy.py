@@ -30,7 +30,7 @@ def export_strategies(sols: List[StrategySolution],
     N, T = instance["N"], instance["T"]
 
 
-    out_dir = Path("report") / f"Strategy_{scenario}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    out_dir = Path("report") / f"Strategy_{scenario}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # =============== 個別 Excel =============================

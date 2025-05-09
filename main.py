@@ -256,7 +256,7 @@ def run_evaluation(
                 })
 
     df = pd.DataFrame(records)
-    out_dir = Path("report") / f"{output_prefix}_{time.strftime('%Y%m%d_%H%M')}"
+    out_dir = Path("report") / f"{output_prefix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir/"Raw_evaluation_results.csv", index=False)
 
@@ -325,5 +325,5 @@ if __name__ == "__main__":
         run_evaluation(benchmark_model="Relax", evaluation_models=["Heur", "Naive"],
                        output_prefix="Evaluation")
     elif args.mode == "stra":
-        run_strategies(case="BaseCase")
-        # run_strategies(case="Large_Medium_Medium")
+        # run_strategies(case="BaseCase")
+        run_strategies(case="Large_Medium_Medium")
