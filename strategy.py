@@ -26,11 +26,11 @@ def _pivot_orders(orders: Dict, N:int, T:int) -> Dict[int, pd.DataFrame]:
 
 def export_strategies(sols: List[StrategySolution],
                       instance: dict,
-                      out_prefix: str="strategy") -> None:
+                      scenario: str) -> None:
     N, T = instance["N"], instance["T"]
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = Path("report") / f"Strategy_{datetime.now().strftime('%Y%m%d')}"
+
+    out_dir = Path("report") / f"Startegy_{scenario}_{datetime.now().strftime('%Y%m%d_%H%M')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # =============== 個別 Excel =============================

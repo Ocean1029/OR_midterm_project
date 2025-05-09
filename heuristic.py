@@ -1,5 +1,8 @@
 import numpy as np
 from typing import Mapping, Tuple, Dict
+from math import ceil
+from strategy_core import StrategySolution
+import time
 
 # ---------------------------------------------------
 # Heuristic Algorithm for Problem 3 – Two‑Mode JIT
@@ -42,6 +45,7 @@ def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
         orders[(i,j,t)] = orders.get((i,j,t), 0.0) + qty
 
     # ---- S3. loop over periods  -------------------------
+    t0 = time.time()
     for i in range(N):
         for t in range(T):
             # arrival from previous orders / in‑transit
@@ -126,4 +130,19 @@ def heuristic_two_mode_jit(instance: Mapping) -> Tuple[Dict, float]:
     holding_cost = sum(CH[i] * inv[i,t] for i in range(N) for t in range(1,T+1))
 
     obj = purchase_cost + fix_cost + container_cost + holding_cost
-    return orders, obj
+
+    cont = sum(
+        ceil(sum(V[i] * orders.get((i, 2, t), 0) for i in range(N)) / 30)
+        for t in range(T)
+    )
+
+    rt = time.time() - t0
+    return StrategySolution(
+        name="Heur",
+        orders=orders,
+        total_cost=obj,
+        total_qty=sum(orders.values()),
+        total_containers=cont,
+        run_time=rt
+    )
+    

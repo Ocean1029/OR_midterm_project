@@ -5,24 +5,23 @@ import random
 from typing import Mapping
 
 import numpy as np
-from numpy import ceil
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 from tqdm import tqdm  # 進度條
-import argparse
+from typing import Dict
+from naive import naive_solution
 from heuristic import heuristic_two_mode_jit
-from reporter import export_strategies
+from strategy import export_strategies
 from strategy_core import StrategySolution
 from pathlib import Path
-
-
-
+import copy
+    
 # ---------------------------------------------------
 # 基本參數設定
 # ---------------------------------------------------
 
-NUM_INSTANCES = 30
+NUM_INSTANCES = 1
 SEED = 42
 
 random.seed(SEED)
@@ -83,6 +82,14 @@ BASE_CASE = {
         "inventory_cost": [100, 40, 180, 180, 40, 180, 140, 100, 180, 140]
     }
 
+def prep_instance(raw: dict) -> dict:
+    """把 Base_Case 的 list → np.ndarray"""
+    instance = copy.deepcopy(raw)
+    for key in ("demand", "purchase_cost", "cv1", "cv2", "I_0", "I_1", "I_2", "V_i", "inventory_cost"):
+        if key in instance and not isinstance(instance[key], np.ndarray):
+            instance[key] = np.array(instance[key])
+    return instance
+
 # ---------------------------------------------------
 # 1. 產生單一情境的實例
 # ---------------------------------------------------
@@ -93,7 +100,6 @@ def generate_instance(levels: dict,
                       seed: int | None = None) -> list[dict]:
     """回傳 [instance_dict, ...]"""
     size, ship_lvl, inv_lvl = scenario
-    rng = np.random.default_rng(seed)
 
     N = levels["scale"][size]["N"]
     T = levels["scale"][size]["T"]
@@ -104,7 +110,8 @@ def generate_instance(levels: dict,
         return rng.uniform(low, high, size=shape)
 
     inst_list = []
-    for _ in range(num_instances):
+    for idx in range(num_instances):
+        rng = np.random.default_rng(None if seed is None else seed + idx) 
         demand = vrand(0, 200, N, T)
         purchase_cost = vrand(1_000, 10_000, N)
         cv1 = vrand(40, 100, N)
@@ -124,22 +131,14 @@ def generate_instance(levels: dict,
         ))
     return inst_list
 
-def prep_instance(raw: dict) -> dict:
-    """確保 list → np.ndarray"""
-    import copy
-    inst = copy.deepcopy(raw)
-    # 需轉陣列欄位
-    for key in ("demand", "purchase_cost", "cv1", "cv2", "I_0", "I_1", "I_2", "V_i", "inventory_cost"):
-        if key in inst and not isinstance(inst[key], np.ndarray):
-            inst[key] = np.array(inst[key])
-    return inst
-
 # ---------------------------------------------------
 # 2. 解法：Relax & MIP
 # ---------------------------------------------------
 
-
 def build_model(instance: Mapping, integer: bool) -> tuple[gp.Model]:
+
+    t0 = time.time()
+
     N, T = instance["N"], instance["T"]
     demand = instance["demand"]
     pc = instance["purchase_cost"]
@@ -196,103 +195,55 @@ def build_model(instance: Mapping, integer: bool) -> tuple[gp.Model]:
 
     model.optimize()
 
-    return model
-
-# ---------------------------------------------------
-# 3. Naive Heuristic
-# ---------------------------------------------------
-
-def naive_heuristic(instance: Mapping):
-    N, T = instance["N"], instance["T"]
-    demand = instance["demand"]
-    purchase_cost = instance["purchase_cost"]
-    cv1 = instance["cv1"]
-    I_0, I_1, I_2 = instance["I_0"], instance["I_1"], instance["I_2"]
-
-    total_cost = 0.0
-    for i in range(N):
-        for t in range(T):
-            req = demand[i, t]
-            if t == 0:
-                req -= I_0[i] + I_1[i]
-            elif t == 1:
-                req -= I_2[i]
-            if req > 0:
-                total_cost += purchase_cost[i] * req + cv1[i] * req
-    total_cost += 100 * T
-    return total_cost
+    rt = time.time() - t0
+    orders = {
+        (i, j, t): v.X
+        for v in model.getVars() if v.VarName.startswith("x[") and v.X > 1e-6
+        for i, j, t in [map(int, v.VarName[2:-1].split(","))]
+    }
+    return StrategySolution(
+        name="Relax",
+        orders=orders,
+        total_cost=model.ObjVal,
+        total_qty=sum(orders.values()),
+        total_containers=sum(v.X for v in model.getVars() if v.VarName.startswith("z[")),
+        run_time=rt
+    )
 
 def solve_all(instance: Mapping) -> Dict[str, StrategySolution]:
-    sols: Dict[str, StrategySolution] = {}
-
-    # # --- MIP ---
-    # t0 = time.time()
-    # mip = build_model(instance, integer=True)
-    # t1 = time.time() - t0
-    # mip_orders = {(i,j,t): v.X
-    #               for v in mip.getVars() if v.VarName.startswith("x[") and v.X>1e-6
-    #               for i,j,t in [map(int, v.VarName[2:-1].split(","))]}
-    # sols["MIP"] = StrategySolution(
-    #     "MIP", mip_orders, mip.ObjVal,
-    #     total_qty=sum(mip_orders.values()),
-    #     total_containers=sum(v.X for v in mip.getVars() if v.VarName.startswith("z[")),
-    #     run_time=t1
-    # )
-
-    # --- Relaxation ---
-    t0 = time.time()
-    lp = build_model(instance, integer=False)
-    t1 = time.time() - t0
-    lp_orders = {(i,j,t): v.X
-                 for v in lp.getVars() if v.VarName.startswith("x[") and v.X>1e-6
-                 for i,j,t in [map(int, v.VarName[2:-1].split(","))]}
-    sols["Relax"] = StrategySolution(
-        "Relax", lp_orders, lp.ObjVal,
-        total_qty=sum(lp_orders.values()),
-        total_containers=sum(v.X for v in lp.getVars() if v.VarName.startswith("z[")),
-        run_time=t1
-    )
-
-    # --- Heuristic-JIT ---
-    t0 = time.time()
-    orders_h, obj_h = heuristic_two_mode_jit(instance)
-    t1 = time.time() - t0
-    V = instance["V_i"]; N, T = instance["N"], instance["T"]
-    cont_h = sum(ceil(sum(V[i]*orders_h.get((i,2,t),0) for i in range(N)) / 30)
-                 for t in range(T))
-    sols["Heur"] = StrategySolution(
-        "Heur", orders_h, obj_h,
-        total_qty=sum(orders_h.values()),
-        total_containers=cont_h,
-        run_time=t1
-    )
+    sols = {}
+    sols["Relax"] = build_model(instance, integer=False)
+    sols["Heur"]  = heuristic_two_mode_jit(instance)
+    sols["Naive"] = naive_solution(instance)
     return sols
 
-# ---------------------------------------------------
-# 5. Evaluate 210 instances
-# ---------------------------------------------------
-def run_eval():
+def run_evaluation(
+        benchmark_model: str = "Relax", 
+        evaluation_models: list[str] = ["Heur"],
+        output_prefix: str = "Evaluation",    
+    ):
     records = []
     rng_seed = SEED
-    for sc in SCENARIOS:
-        inst_list = generate_instance(LEVELS, sc, NUM_INSTANCES, seed=rng_seed)
-        for k, raw in enumerate(tqdm(inst_list, desc=str(sc)), 1):
-            inst = prep_instance(raw)
-            sols = solve_all(inst)
-            opt = sols["Relax"].total_cost
-            for tag in ("Relax", "Heur"):
-                gap = (sols[tag].total_cost - opt) / opt * 100
+    for scenario in SCENARIOS:
+        inst_list = generate_instance(LEVELS, scenario, NUM_INSTANCES, seed=rng_seed)
+        for k, raw in enumerate(tqdm(inst_list, desc=str(scenario)), 1):
+            instances = prep_instance(raw)
+            sols = solve_all(instances)
+
+            optimal = sols[benchmark_model].total_cost
+            for tag in (evaluation_models + [benchmark_model]):
+                gap = (sols[tag].total_cost - optimal) / optimal * 100
                 records.append({
-                    "Scenario": sc, "Case": k, "Method": tag,
+                    "Scenario": scenario, "Case": k, "Method": tag,
                     "Obj": sols[tag].total_cost,
                     "Gap(%)": gap,
                     "Time(s)": sols[tag].run_time
                 })
 
     df = pd.DataFrame(records)
-    out_dir = Path("report") / f"Evaluation_{time.strftime('%Y%m%d-%H%M%S')}"
+    out_dir = Path("report") / f"{output_prefix}_{time.strftime('%Y%m%d_%H%M')}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_dir/"raw_results.csv", index=False)
+    df.to_csv(out_dir/"Raw_evaluation_results.csv", index=False)
 
     summary = df.groupby(["Scenario", "Method"]).agg(
         ObjVal_Average=("Obj", "mean"),
@@ -301,24 +252,55 @@ def run_eval():
         Time_Average=("Time(s)", "mean"),
         Time_Std=("Time(s)", "std")
     ).reset_index()
-    summary.to_excel(out_dir/"summary.xlsx", index=False)
-    print("✔ Summary saved to", out_dir/"summary.xlsx")
+
+    summary.to_excel(out_dir/"Evaluation_summary.xlsx", index=False)
+    print("✔ Summary saved to", out_dir/"Evaluation_summary.xlsx")
 
 # ---------------------------------------------------
 # 6. 單一 BaseCase 報表
 # ---------------------------------------------------
-def run_strategies():
-    inst = prep_instance(BASE_CASE)
+def run_strategies(case: str = "BaseCase") -> None:
+    """
+    case = "BaseCase"
+        → 使用題目提供的 BASE_CASE 常數
+
+    case = "<Scale>_<ContainerCost>_<InventoryCost>"
+        → 例如 "Medium_Medium_Medium"
+        → 會依 SCENARIOS 產生 *一筆* 隨機實例
+    """
+    case = case.strip()
+
+    # ---------- 1) 取得 instance ----------
+    if case.lower() == "basecase":
+        inst = prep_instance(BASE_CASE)
+        scenario_tag = "BaseCase"
+    else:
+        parts = tuple(case.split("_"))
+        if parts not in SCENARIOS:
+            raise ValueError(f"Invalid case '{case}'. Must be 'BaseCase' or one of {SCENARIOS}")
+
+        # 只產生 1 筆隨機實例（seed 固定方便重現）
+        inst = prep_instance(
+            generate_instance(LEVELS, parts, num_instances=1, seed=SEED)[0]
+        )
+        
+        scenario_tag = "_".join(parts)
+        scenario_tag = scenario_tag.replace("Low", "L").replace("Medium", "M").replace("High", "H")
+        scenario_tag = scenario_tag.replace("Small", "S").replace("Large", "L")
+        scenario_tag = scenario_tag.replace("_", "-")
+        
+    # ---------- 2) 求解並輸出 ----------
     sols = solve_all(inst)
     export_strategies(
         list(sols.values()),
-        instance = inst,
-        out_prefix= "BaseCase"
+        instance=inst,
+        scenario=scenario_tag 
     )
+    print(f"✔ Finished strategies export for '{scenario_tag}'")
 
 # ---------------------------------------------------
 # 7.  CLI
 # ---------------------------------------------------
 if __name__ == "__main__":
-    run_eval()
-    run_strategies()
+    run_evaluation(benchmark_model="Relax", evaluation_models=["Heur", "Naive"])
+    run_strategies(case="Medium_Medium_Medium")
