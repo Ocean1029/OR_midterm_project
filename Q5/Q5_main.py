@@ -1,3 +1,12 @@
+"""
+Execute from here to access "Gererate_Experiment" in Q4.
+Solve by Proposed Heuristic (Q3), Very Naive Heuristec (Q4), and LP Relaxation (Q4).
+
+Output "Evaluation_results.csv" in the root directory (Q5 Requirement).
+Output the results to "Evaluation_summary.xlsx" in Q5 directory (For internal report only).
+"""
+
+
 import sys
 import os
 import time
@@ -108,9 +117,9 @@ def run_evaluation(
     # Convert to DataFrame
     df = pd.DataFrame(records)
     
-    # Save raw results to root directory
-    df.to_csv("Raw_evaluation_results.csv", index=False)
-    print("✔ Raw results saved to Raw_evaluation_results.csv")
+    # Save raw results to root directory (Final Submission requirement)
+    df.to_csv("Evaluation_results.csv", index=False)
+    print("✔ Results saved to Evaluation_results.csv")
     
     # Calculate and save summary
     summary = df.groupby("Scenario").agg(
@@ -126,7 +135,7 @@ def run_evaluation(
         Naive_Gap_Std=("Naive_Gap (Q4)", "std")
     ).reset_index()
     
-    # Save summary to Q5 directory
+    # Save summary to Q5 directory (For internal report only)
     summary.to_excel(os.path.join(BASE_DIR, "Evaluation_summary.xlsx"), index=False)
     print("✔ Summary saved to Q5/Evaluation_summary.xlsx")
 
