@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+import os
 
 ######################## PARAMTERS STARTING HERE ################################
 # Read the Excel file from the 'Demand' sheet
-file_path = "OR113-2_midtermProject_data.xlsx"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, "OR113-2_midtermProject_data.xlsx")
 df_demand = pd.read_excel(file_path, sheet_name="Demand")
 N = df_demand.shape[0] - 1   # -1 because of the first row, +1 for indices' consistency
 T = df_demand.shape[1] - 2  # -2 because of the first two columns, +1 for indices' consistency  
@@ -90,6 +92,7 @@ z = model.addVars(S_T, vtype=GRB.INTEGER, name="z")  # Number of containers z_t
 l = model.addVars(S_I, S_T, vtype=GRB.CONTINUOUS, name="l")  # Lost sales l_it
 b = model.addVars(S_I, S_T, vtype=GRB.CONTINUOUS, name="b")  # Backorders b_it
 u = model.addVars(S_I, S_T, vtype=GRB.CONTINUOUS, name="u")  # total unfulfilled demand u_it
+f = model.addVars(S_I, S_T, vtype=GRB.CONTINUOUS, name="f")  # fulfilled backorder f_it
 
 
 # Objective function (1)
@@ -101,7 +104,7 @@ purchasing_and_shipping_cost = gp.quicksum(
 ) + gp.quicksum(C["F"][j] * y[j, t] for t in S_T for j in S_J)
 container_cost = gp.quicksum(C["C"] * z[t] for t in S_T)
 shortage_cost = gp.quicksum(C["L"][i] * l[i, t] for i in S_I for t in S_T)
-backorder_cost = gp.quicksum(C["B"][i] * b[i, t] for i in S_I for t in S_T)
+backorder_cost = gp.quicksum(C["B"][i] * (b[i, t] - f[i, t]) for i in S_I for t in S_T)
 
 model.setObjective(holding_cost + purchasing_and_shipping_cost + container_cost + shortage_cost + backorder_cost, GRB.MINIMIZE)
 
@@ -110,16 +113,18 @@ model.setObjective(holding_cost + purchasing_and_shipping_cost + container_cost 
 J_in_inventory = np.array([1, 2, 3, 3, 3, 3])
 
 for i in S_I:
+    unfulfilled_backorder = 0
     for t in S_T:
         # Compute the in-transit quantity arriving at time t
         in_inventory = 0
         for j in range(J_in_inventory[t]):
             in_inventory += x[i, j, t - T_lead[j] + 1]
+        unfulfilled_backorder += (b[i, t-1] - f[i, t-1]) if t > 0 else 0
         # Add the constraint for inventory balance
         if t == 0:
             model.addConstr(v[i, t] == in_inventory + I_0[i] + I[i, t] - D[i, t] + u[i, t], name=f"InvBalance_{i}_{t}")
         else:
-            model.addConstr(v[i, t] == v[i, t-1] + in_inventory + I[i, t] - D[i, t] + u[i, t], name=f"InvBalance_{i}_{t}")
+            model.addConstr(v[i, t] == v[i, t-1] + in_inventory + I[i, t] - D[i, t] + u[i, t] + unfulfilled_backorder, name=f"InvBalance_{i}_{t}")
             model.addConstr(v[i, t-1] >= D[i, t] - u[i, t], name=f"Demand_{i}_{t}")
 
 
@@ -138,15 +143,21 @@ for t in S_T:
 
 # Relate lost sales, backorder and demand (7)
 for i in S_I:
+    sum_backorder = 0
     for t in S_T:
-        model.addConstr(b[i, t] == u[i, t] * df_inventory_cost.iloc[i, 5], name=f"Backorder_{i}_{t}")
-        model.addConstr(u[i, t] == l[i, t] + b[i, t], name=f"UnfulfilledDemand_{i}_{t}")
+        sum_backorder += b[i, t-1] if t > 0 else 0
+        r = df_inventory_cost.iloc[i, 5]
         if t == 0:
             model.addConstr(u[i, t] >= D[i, t] - I_0[i] - I[i, t], name=f"TotalUnfulfill_{i}_{t}")
             # 考慮 原有的存貨 I_0[i] 跟 在途存貨 I[i, t]
         else:
             model.addConstr(u[i, t] >= D[i, t] - v[i, t-1], name=f"TotalUnfulfill_{i}_{t}")
+            model.addConstr(f[i, t] <= sum_backorder, name=f"FulfilledBackorder_{i}_{t}")
 
+        model.addConstr(b[i, t] == u[i, t] * (r / (1 + r)), name=f"BackorderLinear_{i}_{t}")
+        model.addConstr(l[i, t] == u[i, t] * (1 / (1 + r)), name=f"LostSalesLinear_{i}_{t}")
+        model.addConstr(v[i, t] >= f[i, t], name=f"FulfilledBackorder_{i}_{t}")
+        
 # Non-negativity and binary constraints (6)
 for i in S_I:
     for j in S_J:
@@ -169,6 +180,9 @@ for i in S_I:
 for i in S_I:
     for t in S_T:
         model.addConstr(b[i, t] >= 0, name=f"NonNeg_b_{i}_{t}")
+for i in S_I:
+    for t in S_T:
+        model.addConstr(f[i, t] >= 0, name=f"NonNeg_f_{i}_{t}")
 
 # Optimize the model
 model.optimize()
@@ -207,5 +221,10 @@ if model.status == GRB.OPTIMAL:
         for i in S_I:
                 if b[i, t].x > 0:
                     print(f"b[{i+1},{t+1}] = {b[i, t].x}")
+    print("\nFulfilled backorders (f_it):")
+    for t in S_T:
+        for i in S_I:
+                if f[i, t].x > 0:
+                    print(f"f[{i+1},{t+1}] = {f[i, t].x}")
 else:
     print("No optimal solution found.")

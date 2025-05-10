@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+import os
 
 ######################## PARAMTERS STARTING HERE ################################
 # Read the Excel file from the 'Demand' sheet
-file_path = "OR113-2_midtermProject_data.xlsx"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, "OR113-2_midtermProject_data.xlsx")
 df_demand = pd.read_excel(file_path, sheet_name="Demand")
 N = df_demand.shape[0] - 1   # -1 because of the first row, +1 for indices' consistency
 T = df_demand.shape[1] - 2  # -2 because of the first two columns, +1 for indices' consistency  
@@ -135,9 +137,11 @@ for t in S_T:
 for i in S_I:
     for t in S_T:
         if t == 0:
+            # Only consider initial inventory and in-transit inventory
             model.addConstr(l[i, t] >= D[i, t] - I_0[i] - I[i, t], name=f"LostSales_{i}_{t}")
-            # 考慮 原有的存貨 I_0[i] 跟 在途存貨 I[i, t]
+            
         else:
+            # Consider lost sales from the previous period
             model.addConstr(l[i, t] >= D[i, t] - v[i, t-1], name=f"LostSales_{i}_{t}")
 
 # Non-negativity and binary constraints (6)
