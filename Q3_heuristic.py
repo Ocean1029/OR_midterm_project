@@ -9,6 +9,34 @@ import time
 FIX = {0: 100, 1: 80, 2: 50}   # 固定費 (Express / Air / Ocean)
 LEAD = {0: 1, 1: 2, 2: 3}      # 前置期
 
+# Base case instance for testing
+BASE_CASE = {
+    "N": 10,
+    "T": 6,
+    "demand": [
+        [138.0, 55.0, 172.0, 194.0, 94.0, 185.0],
+        [190.0, 101.0, 68.0, 185.0, 13.0, 136.0],
+        [79.0, 179.0, 21.0, 49.0, 199.0, 200.0],
+        [142.0, 103.0, 78.0, 131.0, 146.0, 155.0],
+        [35.0, 62.0, 83.0, 90.0, 197.0, 49.0],
+        [91.0, 95.0, 107.0, 127.0, 116.0, 183.0],
+        [105.0, 164.0, 19.0, 116.0, 119.0, 175.0],
+        [37.0, 155.0, 10.0, 77.0, 168.0, 32.0],
+        [108.0, 185.0, 188.0, 176.0, 81.0, 172.0],
+        [46.0, 178.0, 162.0, 200.0, 154.0, 199.0]
+    ],
+    "purchase_cost": [5000.0, 2000.0, 9000.0, 9000.0, 2000.0, 9000.0, 7000.0, 5000.0, 9000.0, 7000.0],
+    "cv1": [44.0, 89.0, 86.0, 91.0, 50.0, 51.0, 83.0, 96.0, 80.0, 49.0],
+    "cv2": [18.0, 45.0, 38.0, 46.0, 21.0, 25.0, 46.0, 49.0, 35.0, 20.0],
+    "alpha": None,
+    "I_0": [800.0, 600.0, 425.0, 350.0, 400.0, 524.0, 453.0, 218.0, 673.0, 200.0],
+    "I_1": [0.0, 48.0, 0.0, 153.0, 0.0, 18.0, 28.0, 0.0, 109.0, 0.0],
+    "I_2": [0.0, 0.0, 20.0, 0.0, 0.0, 23.0, 45.0, 0.0, 34.0, 0.0],
+    "V_i": [0.073, 0.005, 0.043, 0.063, 0.045, 0.086, 0.079, 0.082, 0.068, 0.098],
+    "container_cost": 2750,
+    "inventory_cost": [100, 40, 180, 180, 40, 180, 140, 100, 180, 140]
+}
+
 # ---------------------------------------------------
 # Heuristic Algorithm – Two-Mode + Service-Level Safe
 # ---------------------------------------------------
@@ -114,3 +142,27 @@ def heuristic_two_mode_jit(instance: Mapping) -> StrategySolution:
         total_containers=total_cont,
         run_time=time.time() - st,
     )
+
+if __name__ == "__main__":
+    # Convert lists to numpy arrays
+    instance = BASE_CASE.copy()
+    for key in ("demand", "purchase_cost", "cv1", "cv2", "I_0", "I_1", "I_2", "V_i", "inventory_cost"):
+        if key in instance and not isinstance(instance[key], np.ndarray):
+            instance[key] = np.array(instance[key])
+    
+    # Run heuristic algorithm
+    solution = heuristic_two_mode_jit(instance)
+    
+    # Print results
+    print("\n=== Heuristic Algorithm Results ===")
+    print(f"Total Cost: {solution.total_cost:,.2f}")
+    print(f"Total Order Quantity: {solution.total_qty:,.2f}")
+    print(f"Total Containers: {solution.total_containers}")
+    print(f"Runtime: {solution.run_time:.3f} seconds")
+    
+    # Print order details
+    print("\nOrder Details:")
+    for (i, j, t), qty in sorted(solution.orders.items()):
+        mode = "Express" if j == 0 else "Air" if j == 1 else "Ocean"
+        print(f"Product {i+1}, Mode {mode}, Period {t+1}: {qty:,.2f}")
+
