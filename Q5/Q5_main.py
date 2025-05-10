@@ -108,12 +108,9 @@ def run_evaluation(
     # Convert to DataFrame
     df = pd.DataFrame(records)
     
-    # Save results
-    out_dir = Path("results") / f"{output_prefix}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save raw results
-    df.to_csv(out_dir / "Raw_evaluation_results.csv", index=False)
+    # Save raw results to root directory
+    df.to_csv("Raw_evaluation_results.csv", index=False)
+    print("✔ Raw results saved to Raw_evaluation_results.csv")
     
     # Calculate and save summary
     summary = df.groupby("Scenario").agg(
@@ -129,8 +126,9 @@ def run_evaluation(
         Naive_Gap_Std=("Naive_Gap (Q4)", "std")
     ).reset_index()
     
-    summary.to_excel(out_dir / "Evaluation_summary.xlsx", index=False)
-    print("✔ Summary saved to", out_dir / "Evaluation_summary.xlsx")
+    # Save summary to Q5 directory
+    summary.to_excel(os.path.join(BASE_DIR, "Evaluation_summary.xlsx"), index=False)
+    print("✔ Summary saved to Q5/Evaluation_summary.xlsx")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
