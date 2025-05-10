@@ -1,3 +1,8 @@
+"""
+Do not execute this file directly!
+Instead, run the Q5_main.py file, which will import this file and execute algorithm here on the generated result.
+"""
+
 # naive.py
 from Q4_strategy_core import StrategySolution
 import time
@@ -8,7 +13,7 @@ LEAD = 1          # Express lead time
 
 def naive_solution(instance) -> StrategySolution:
     """
-    Improved Naive Solution:
+    Naive Solution:
     - Only uses Express shipping
     - Ensures ending inventory ≥ next period demand (satisfies constraint 4)
     """

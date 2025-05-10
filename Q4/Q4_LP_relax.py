@@ -1,3 +1,8 @@
+"""
+Do not execute this file directly!
+Instead, run the Q5_main.py file, which will import this file and execute algorithm here on the generated result.
+"""
+
 import time
 import gurobipy as gp
 from gurobipy import GRB

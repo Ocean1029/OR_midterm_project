@@ -1,5 +1,3 @@
-# heuristic_two_mode_jit.py  (可覆蓋原函式)
-
 import numpy as np
 from typing import Mapping, Dict, Tuple
 from math import ceil

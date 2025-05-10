@@ -1,3 +1,8 @@
+"""
+Do not execute this file directly!
+Instead, run the Q5_main.py file, which will import this file and execute algorithm here on the generated result.
+"""
+
 import numpy as np
 import random
 from typing import Mapping, Dict, List
@@ -21,7 +26,7 @@ LEVELS = {
     },
 }
 
-def generate_instance(levels: Dict,
+def generate_experiment(levels: Dict,
                      scenario: tuple[str, str, str],
                      num_instances: int,
                      seed: int | None = None) -> List[Dict]:

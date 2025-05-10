@@ -1,3 +1,5 @@
+import sys
+import os
 import time
 import random
 import argparse
@@ -7,11 +9,17 @@ import pandas as pd
 from typing import Dict, List
 from tqdm import tqdm
 
-from Q4_naive import naive_solution
-from Q3_heuristic import heuristic_two_mode_jit
-from Q4_strategy_core import StrategySolution
-from Q4_generate_instance import generate_instance, LEVELS
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(BASE_DIR, "..", "Q3"))
+sys.path.append(os.path.join(BASE_DIR, "..", "Q4"))
+
 from Q4_LP_relax import lp_relaxation
+from Q4_Naive import naive_solution
+from Q3_Heuristic import heuristic_two_mode_jit
+from Q4_strategy_core import StrategySolution
+from Q4_generate_experiment import generate_experiment, LEVELS
+
+
 
 # ---------------------------------------------------
 # Basic Parameters
@@ -52,7 +60,7 @@ def run_evaluation(
         print(f"\nProcessing scenario: {scenario}")
         
         # Generate instances
-        instances = generate_instance(
+        instances = generate_experiment(
             LEVELS,
             scenario,
             num_instances=NUM_INSTANCES,
@@ -80,16 +88,22 @@ def run_evaluation(
             
             # Calculate gaps and record results
             optimal = instance_results[benchmark_model].total_cost
-            for model_name in [benchmark_model] + evaluation_models:
-                gap = (instance_results[model_name].total_cost - optimal) / optimal * 100
-                records.append({
-                    "Scenario": scenario,
-                    "Case": k,
-                    "Method": model_name,
-                    "Obj": instance_results[model_name].total_cost,
-                    "Gap(%)": gap,
-                    "Time(s)": instance_results[model_name].run_time
-                })
+            record = {
+                "Scenario": scenario,
+                "Instance_ID": k,
+                "LP_Relax_Obj (Q4)": instance_results["LP_Relax"].total_cost,
+                "Proposed_Heuristic_Obj (Q5)": instance_results["Heuristic"].total_cost,
+                "Naive_Obj (Q4)": instance_results["Naive"].total_cost,
+                "LP_Relax_Time": instance_results["LP_Relax"].run_time,
+                "Proposed_Heuristic_Time": instance_results["Heuristic"].run_time,
+                "Naive_Time": instance_results["Naive"].run_time,
+            }
+            
+            # Calculate optimality gaps
+            record["Proposed_Heuristic_Gap (Q5)"] = (instance_results["Heuristic"].total_cost - optimal) / optimal * 100
+            record["Naive_Gap (Q4)"] = (instance_results["Naive"].total_cost - optimal) / optimal * 100
+            
+            records.append(record)
     
     # Convert to DataFrame
     df = pd.DataFrame(records)
@@ -102,12 +116,17 @@ def run_evaluation(
     df.to_csv(out_dir / "Raw_evaluation_results.csv", index=False)
     
     # Calculate and save summary
-    summary = df.groupby(["Scenario", "Method"]).agg(
-        ObjVal_Average=("Obj", "mean"),
-        Gap_Average=("Gap(%)", "mean"),
-        Gap_Std=("Gap(%)", "std"),
-        Time_Average=("Time(s)", "mean"),
-        Time_Std=("Time(s)", "std")
+    summary = df.groupby("Scenario").agg(
+        LP_Relax_Obj_Avg=("LP_Relax_Obj (Q4)", "mean"),
+        Heuristic_Obj_Avg=("Proposed_Heuristic_Obj (Q5)", "mean"),
+        Naive_Obj_Avg=("Naive_Obj (Q4)", "mean"),
+        LP_Relax_Time_Avg=("LP_Relax_Time", "mean"),
+        Heuristic_Time_Avg=("Proposed_Heuristic_Time", "mean"),
+        Naive_Time_Avg=("Naive_Time", "mean"),
+        Heuristic_Gap_Avg=("Proposed_Heuristic_Gap (Q5)", "mean"),
+        Heuristic_Gap_Std=("Proposed_Heuristic_Gap (Q5)", "std"),
+        Naive_Gap_Avg=("Naive_Gap (Q4)", "mean"),
+        Naive_Gap_Std=("Naive_Gap (Q4)", "std")
     ).reset_index()
     
     summary.to_excel(out_dir / "Evaluation_summary.xlsx", index=False)
